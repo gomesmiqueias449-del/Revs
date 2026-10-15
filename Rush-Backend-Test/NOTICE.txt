@@ -1,0 +1,1 @@
+Este projeto é somente um backend de teste. Não possui autenticação real, persistência, controles antiabuso ou compatibilidade completa com o backend do Stumble Guys. Use apenas em ambiente de teste e com autorização.

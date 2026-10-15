@@ -1,0 +1,14 @@
+{
+  "name": "rush-photon-test-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal test API for the Rush game mod; not a production game backend.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
