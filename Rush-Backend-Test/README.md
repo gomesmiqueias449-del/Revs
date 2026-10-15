@@ -1,12 +1,16 @@
 # Rush Photon Test Backend
 
-API mínima de teste preparada para Render. Ela oferece `GET /health`, `GET /config` e `POST /user/login/` com os campos que o trecho de autenticação do mod espera.
+Backend de teste do Rush-Revs, publicado em `https://rush-photon-test-backend-revs.onrender.com`. Oferece `GET /health`, `GET /config` e `POST /user/login/` para autenticar um perfil de teste usado pelo mod.
 
-## Limites importantes
+## Photon
+
+O App ID configurado é `73ce7592-a817-42ff-8e4a-660418a96536`, correspondente ao app **Rush-Revs Quantum 2.1**. A rota `/config` apenas publica esse identificador: ela **não hospeda Photon Cloud**, não configura o painel Photon e não implementa uma sessão de jogo ou matchmaking.
+
+## Limitações importantes
 
 - Este é um **stub de teste**, não um backend completo nem pronto para produção.
-- O login aceita qualquer `hash` não vazio; não valida contas, não persiste dados e não implementa as demais rotas do backend do jogo.
-- A rota `/config` apenas devolve o App ID Photon confirmado (`38243ef8-cd92-46b6-b3d1-e27a6a34959b`). Isso **não hospeda Photon Cloud** nem faz o mod buscar o App ID. O cliente ainda precisa estar configurado com o App ID para conectar-se ao Photon.
+- `POST /user/login/` aceita qualquer `hash` não vazio, não valida contas e não persiste jogadores. Ele pode aprovar um perfil de teste para o fluxo de entrada do mod, mas não fornece inventário, salas privadas, matchmaking, compras ou os demais serviços do jogo.
+- As rotas oficiais do jogo continuam apontadas para o backend existente, pois este serviço não implementa a API completa da build 0.56.
 - Não use esta API com contas reais nem dados de jogadores. Um backend de produção precisa de autenticação validada no servidor, armazenamento persistente, proteção contra abuso e especificação de todas as rotas que o jogo usa.
 
 ## Rodar localmente
@@ -30,12 +34,6 @@ curl -X POST http://localhost:10000/user/login/ \
   -d '{"deviceId":"device-test-1","country":"BR","hash":"test-only"}'
 ```
 
-## Publicar no Render
+## Deploy
 
-1. Envie esta pasta para um repositório Git acessível pela sua conta Render.
-2. No Render, crie `New → Web Service` e conecte o repositório.
-3. Use runtime `Node`, build command `npm install` e start command `npm start`.
-4. Defina `PHOTON_APP_ID` como `38243ef8-cd92-46b6-b3d1-e27a6a34959b` e, se quiser, `TEST_USERNAME=TestPlayer`.
-5. Depois do deploy, valide `/health`, `/config` e `/user/login/`.
-
-O serviço usa a variável `PORT` do Render e escuta em `0.0.0.0`. No plano gratuito, o serviço pode hibernar por inatividade. O código está pronto para teste, mas o deploy aguarda a reconexão da conta Render e o repositório Git informado pelo usuário.
+O serviço Render usa a branch `add-rush-backend-test` do repositório `gomesmiqueias449-del/Revs` e faz deploy automático após cada commit. No plano Free, pode hibernar por inatividade. Depois de atualizar o código, confira `/health`, `/config` e `POST /user/login/`.

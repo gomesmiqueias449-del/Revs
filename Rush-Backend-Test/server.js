@@ -3,7 +3,7 @@
 const http = require('node:http');
 const { createHash } = require('node:crypto');
 
-const DEFAULT_PHOTON_APP_ID = '38243ef8-cd92-46b6-b3d1-e27a6a34959b';
+const DEFAULT_PHOTON_APP_ID = '73ce7592-a817-42ff-8e4a-660418a96536';
 const MAX_BODY_BYTES = 64 * 1024;
 
 function sendJson(res, statusCode, payload) {
