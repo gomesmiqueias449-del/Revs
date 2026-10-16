@@ -126,7 +126,7 @@ function createServer(options = {}) {
         const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 64) : 'Classic Tournament';
         const map = typeof body.map === 'string' && body.map.trim() ? body.map.trim().slice(0, 64) : 'Rush Dash';
         const size = Math.max(2, Math.min(32, Number(body.size) || 8));
-        const tournament = { id: randomUUID(), name, map, size, visibility: body.visibility === 'private' ? 'private' : 'public', status: 'open', players: [], matches: [], createdAt: new Date().toISOString() };
+        const tournament = { id: randomUUID(), name, map, size, visibility: body.visibility === 'private' ? 'private' : 'public', region: String(body.region || 'AS').slice(0, 8).toUpperCase(), status: 'open', players: [], matches: [], createdAt: new Date().toISOString() };
         tournaments.set(tournament.id, tournament);
         sendJson(res, 201, tournament);
       } catch (error) {
