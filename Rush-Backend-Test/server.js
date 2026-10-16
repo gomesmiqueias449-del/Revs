@@ -126,7 +126,9 @@ function createServer(options = {}) {
         const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 64) : 'Classic Tournament';
         const map = typeof body.map === 'string' && body.map.trim() ? body.map.trim().slice(0, 64) : 'Rush Dash';
         const size = Math.max(2, Math.min(32, Number(body.size) || 8));
-        const tournament = { id: randomUUID(), name, map, size, visibility: body.visibility === 'private' ? 'private' : 'public', region: String(body.region || 'AS').slice(0, 8).toUpperCase(), status: 'open', players: [], matches: [], createdAt: new Date().toISOString() };
+        const scheduledAt = typeof body.scheduledAt === 'string' && !Number.isNaN(Date.parse(body.scheduledAt)) ? new Date(body.scheduledAt).toISOString() : null;
+        const status = scheduledAt && Date.parse(scheduledAt) > Date.now() ? 'scheduled' : 'open';
+        const tournament = { id: randomUUID(), name, map, size, visibility: body.visibility === 'private' ? 'private' : 'public', region: String(body.region || 'AS').slice(0, 8).toUpperCase(), scheduledAt, status, players: [], matches: [], createdAt: new Date().toISOString() };
         tournaments.set(tournament.id, tournament);
         sendJson(res, 201, tournament);
       } catch (error) {
@@ -135,7 +137,11 @@ function createServer(options = {}) {
       return;
     }
     if (req.method === 'GET' && pathname === '/classic-tournament/list') {
-      sendJson(res, 200, { tournaments: [...tournaments.values()].filter(t => t.visibility === 'public' && t.status !== 'finished') });
+      const visible = [...tournaments.values()].filter(t => {
+        if (t.status === 'scheduled' && t.scheduledAt && Date.parse(t.scheduledAt) <= Date.now()) t.status = 'open';
+        return t.visibility === 'public' && (t.status === 'open' || t.status === 'running');
+      });
+      sendJson(res, 200, { tournaments: visible });
       return;
     }
     if (req.method === 'POST' && pathname === '/classic-tournament/join') {
