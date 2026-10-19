@@ -62,3 +62,56 @@ test('POST /user/login rejects missing fields', async () => {
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /required/);
 });
+
+test('POST /user/rename changes the name repeatedly for free and returns it on login', async () => {
+  const deviceId = 'device-rename-test-1';
+  const credentials = { deviceId, country: 'BR', hash: 'test-only' };
+  const login = await fetch(`${baseUrl}/user/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(credentials),
+  });
+  const account = await login.json();
+  assert.equal(login.status, 200);
+
+  for (const username of ['RevsOne', 'RevsTwo']) {
+    const rename = await fetch(`${baseUrl}/user/rename`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: account.id, ...credentials, username }),
+    });
+    const result = await rename.json();
+    assert.equal(rename.status, 200);
+    assert.deepEqual(result, { ok: true, free: true, id: account.id, username });
+  }
+
+  const relogin = await fetch(`${baseUrl}/user/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(credentials),
+  });
+  assert.equal(relogin.status, 200);
+  assert.equal((await relogin.json()).username, 'RevsTwo');
+});
+
+test('POST /user/rename rejects an ID that does not match the device', async () => {
+  const credentials = { deviceId: 'device-rename-test-2', country: 'BR', hash: 'test-only' };
+  const login = await fetch(`${baseUrl}/user/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(credentials),
+  });
+  const account = await login.json();
+  const response = await fetch(`${baseUrl}/user/rename`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: account.id + 1, ...credentials, username: 'MustFail' }),
+  });
+  assert.equal(response.status, 403);
+  assert.match((await response.json()).error, /does not match/);
+});
+
+test('POST /user/rename rejects names outside the allowed range', async () => {
+  const credentials = { deviceId: 'device-rename-test-3', country: 'BR', hash: 'test-only' };
+  const login = await fetch(`${baseUrl}/user/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(credentials),
+  });
+  const account = await login.json();
+  const response = await fetch(`${baseUrl}/user/rename`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: account.id, ...credentials, username: 'x'.repeat(33) }),
+  });
+  assert.equal(response.status, 400);
+});
