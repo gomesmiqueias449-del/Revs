@@ -1,9 +1,8 @@
 'use strict';
 
 const http = require('node:http');
-const { createHash, randomUUID } = require('node:crypto');
-const fs = require('node:fs/promises');
-const path = require('node:path');
+const { createHash } = require('node:crypto');
+
 const DEFAULT_PHOTON_APP_ID = '73ce7592-a817-42ff-8e4a-660418a96536';
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -30,9 +29,9 @@ function readJson(req) {
       if (size > MAX_BODY_BYTES) {
         tooLarge = true;
         chunks.length = 0;
-        return;
+      } else if (!tooLarge) {
+        chunks.push(chunk);
       }
-      if (!tooLarge) chunks.push(chunk);
     });
     req.on('end', () => {
       if (tooLarge) {
@@ -42,8 +41,7 @@ function readJson(req) {
         return;
       }
       try {
-        const text = Buffer.concat(chunks).toString('utf8');
-        const value = JSON.parse(text || '{}');
+        const value = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
         if (!value || Array.isArray(value) || typeof value !== 'object') {
           const error = new Error('JSON body must be an object');
           error.statusCode = 400;
@@ -63,41 +61,12 @@ function readJson(req) {
 
 function stableTestUserId(deviceId) {
   const digest = createHash('sha256').update(deviceId, 'utf8').digest();
-  const id = digest.readUInt32BE(0) & 0x7fffffff;
-  return id || 1;
+  return (digest.readUInt32BE(0) & 0x7fffffff) || 1;
 }
 
 function createServer(options = {}) {
   const photonAppId = options.photonAppId ?? process.env.PHOTON_APP_ID ?? DEFAULT_PHOTON_APP_ID;
   const testUsername = options.testUsername ?? process.env.TEST_USERNAME ?? 'TestPlayer';
-  const tournaments = new Map();
-  const userStoreFile = options.userStoreFile ?? process.env.USER_STORE_FILE ?? '';
-  const usernamesById = new Map();
-  const userStoreReady = (async () => {
-    if (!userStoreFile) return;
-    try {
-      const stored = JSON.parse(await fs.readFile(userStoreFile, 'utf8'));
-      if (!stored || Array.isArray(stored) || typeof stored !== 'object') throw new Error('User store must contain a JSON object');
-      for (const [id, username] of Object.entries(stored)) {
-        if (/^[1-9]\d*$/.test(id) && typeof username === 'string' && username.trim()) usernamesById.set(id, username.trim());
-      }
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
-  })();
-  let userStoreWriteQueue = Promise.resolve();
-  const persistUsernames = () => {
-    if (!userStoreFile) return Promise.resolve();
-    const snapshot = Object.fromEntries(usernamesById);
-    const write = userStoreWriteQueue.then(async () => {
-      await fs.mkdir(path.dirname(userStoreFile), { recursive: true });
-      const temporaryFile = `${userStoreFile}.${process.pid}.${randomUUID()}.tmp`;
-      await fs.writeFile(temporaryFile, JSON.stringify(snapshot, null, 2), { mode: 0o600 });
-      await fs.rename(temporaryFile, userStoreFile);
-    });
-    userStoreWriteQueue = write.catch(() => {});
-    return write;
-  };
   const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
@@ -108,6 +77,7 @@ function createServer(options = {}) {
       res.end();
       return;
     }
+
     let pathname;
     try {
       pathname = new URL(req.url, 'http://localhost').pathname.replace(/\/+$/, '') || '/';
@@ -118,18 +88,18 @@ function createServer(options = {}) {
 
     if (req.method === 'GET' && pathname === '/') {
       sendJson(res, 200, {
-        service: 'Rush Photon Test Backend',
+        service: 'Rush Photon Test Login Backend',
         mode: 'test-only',
-        endpoints: ['/health', '/config', 'POST /user/login', 'POST /user/rename', 'POST /classic-tournament/create', 'GET /classic-tournament/list', 'POST /classic-tournament/join', 'POST /classic-tournament/start', 'POST /classic-tournament/result'],
+        endpoints: ['/health', '/config', 'POST /user/login'],
       });
       return;
     }
     if (req.method === 'GET' && pathname === '/health') {
-      sendJson(res, 200, { ok: true, service: 'rush-photon-test-backend' });
+      sendJson(res, 200, { ok: true, service: 'rush-photon-test-login-backend' });
       return;
     }
     if (req.method === 'GET' && pathname === '/config') {
-      sendJson(res, 200, { photonAppId, note: 'This publishes the Photon App ID and tournament API.' });
+      sendJson(res, 200, { photonAppId, note: 'Test login backend only; this does not validate real accounts.' });
       return;
     }
     if (req.method === 'POST' && pathname === '/user/login') {
@@ -142,108 +112,25 @@ function createServer(options = {}) {
           sendJson(res, 400, { error: 'deviceId, country, and hash are required' });
           return;
         }
-        await userStoreReady;
-        const id = stableTestUserId(deviceId);
-        const username = usernamesById.get(String(id)) || testUsername;
-        sendJson(res, 200, { banned: false, username, country: country.slice(0, 2), trophys: 0, crowns: 0, id, experience: 0, gems: 0, coins: 0 });
+        sendJson(res, 200, {
+          banned: false,
+          username: testUsername,
+          country: country.slice(0, 2),
+          trophys: 0,
+          crowns: 0,
+          id: stableTestUserId(deviceId),
+          experience: 0,
+          gems: 0,
+          coins: 0,
+        });
       } catch (error) {
         sendJson(res, error.statusCode || 400, { error: error.message || 'Invalid request' });
       }
-      return;
-    }
-
-    if (req.method === 'POST' && pathname === '/user/rename') {
-      try {
-        const body = await readJson(req);
-        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
-        const hash = typeof body.hash === 'string' ? body.hash.trim() : '';
-        const id = Number(body.id);
-        const username = typeof body.username === 'string' ? body.username.trim() : '';
-        if (!deviceId || !hash || !Number.isSafeInteger(id) || id <= 0 || !username) {
-          sendJson(res, 400, { error: 'id, deviceId, hash, and username are required' });
-          return;
-        }
-        if (id !== stableTestUserId(deviceId)) {
-          sendJson(res, 403, { error: 'Player ID does not match device ID' });
-          return;
-        }
-        if (username.length > 32 || /[\u0000-\u001f\u007f]/u.test(username)) {
-          sendJson(res, 400, { error: 'Username must be at most 32 characters and contain no control characters' });
-          return;
-        }
-        await userStoreReady;
-        usernamesById.set(String(id), username);
-        await persistUsernames();
-        sendJson(res, 200, { ok: true, free: true, id, username });
-      } catch (error) {
-        sendJson(res, error.statusCode || 500, { error: error.message || 'Rename failed' });
-      }
-      return;
-    }
-
-    if (req.method === 'POST' && pathname === '/classic-tournament/create') {
-      try {
-        const body = await readJson(req);
-        const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 64) : 'Classic Tournament';
-        const map = typeof body.map === 'string' && body.map.trim() ? body.map.trim().slice(0, 64) : 'Rush Dash';
-        const size = Math.max(2, Math.min(32, Number(body.size) || 8));
-        const scheduledAt = typeof body.scheduledAt === 'string' && !Number.isNaN(Date.parse(body.scheduledAt)) ? new Date(body.scheduledAt).toISOString() : null;
-        const status = scheduledAt && Date.parse(scheduledAt) > Date.now() ? 'scheduled' : 'open';
-        const tournament = { id: randomUUID(), name, map, size, visibility: body.visibility === 'private' ? 'private' : 'public', region: String(body.region || 'AS').slice(0, 8).toUpperCase(), scheduledAt, status, players: [], matches: [], createdAt: new Date().toISOString() };
-        tournaments.set(tournament.id, tournament);
-        sendJson(res, 201, tournament);
-      } catch (error) {
-        sendJson(res, error.statusCode || 400, { error: error.message || 'Invalid request' });
-      }
-      return;
-    }
-    if (req.method === 'GET' && pathname === '/classic-tournament/list') {
-      const visible = [...tournaments.values()].filter(t => {
-        if (t.status === 'scheduled' && t.scheduledAt && Date.parse(t.scheduledAt) <= Date.now()) t.status = 'open';
-        return t.visibility === 'public' && (t.status === 'open' || t.status === 'running');
-      });
-      sendJson(res, 200, { tournaments: visible });
-      return;
-    }
-    if (req.method === 'POST' && pathname === '/classic-tournament/join') {
-      try {
-        const body = await readJson(req);
-        const tournament = tournaments.get(String(body.tournamentId || ''));
-        const username = typeof body.username === 'string' && body.username.trim() ? body.username.trim().slice(0, 32) : 'Player';
-        if (!tournament) { sendJson(res, 404, { error: 'Tournament not found' }); return; }
-        if (tournament.status !== 'open') { sendJson(res, 409, { error: 'Tournament is not open' }); return; }
-        if (tournament.players.some(p => p.username === username)) { sendJson(res, 200, tournament); return; }
-        if (tournament.players.length >= tournament.size) { sendJson(res, 409, { error: 'Tournament is full' }); return; }
-        tournament.players.push({ username, joinedAt: new Date().toISOString() });
-        sendJson(res, 200, tournament);
-      } catch (error) { sendJson(res, error.statusCode || 400, { error: error.message || 'Invalid request' }); }
-      return;
-    }
-    if (req.method === 'POST' && pathname === '/classic-tournament/start') {
-      try {
-        const body = await readJson(req);
-        const tournament = tournaments.get(String(body.tournamentId || ''));
-        if (!tournament) { sendJson(res, 404, { error: 'Tournament not found' }); return; }
-        if (tournament.players.length < 2) { sendJson(res, 409, { error: 'At least two players are required' }); return; }
-        tournament.status = 'running';
-        tournament.startedAt = new Date().toISOString();
-        sendJson(res, 200, tournament);
-      } catch (error) { sendJson(res, error.statusCode || 400, { error: error.message || 'Invalid request' }); }
-      return;
-    }
-    if (req.method === 'POST' && pathname === '/classic-tournament/result') {
-      try {
-        const body = await readJson(req);
-        const tournament = tournaments.get(String(body.tournamentId || ''));
-        if (!tournament) { sendJson(res, 404, { error: 'Tournament not found' }); return; }
-        tournament.matches.push({ winner: body.winner || null, map: tournament.map, recordedAt: new Date().toISOString() });
-        if (body.finished === true) { tournament.status = 'finished'; tournament.finishedAt = new Date().toISOString(); }
-        sendJson(res, 200, tournament);
-      } catch (error) { sendJson(res, error.statusCode || 400, { error: error.message || 'Invalid request' }); }
       return;
     }
     sendJson(res, 404, { error: 'Not found' });
   });
+
   server.requestTimeout = 15_000;
   server.headersTimeout = 10_000;
   server.keepAliveTimeout = 5_000;
@@ -253,7 +140,7 @@ function createServer(options = {}) {
 if (require.main === module) {
   const port = Number(process.env.PORT || 10_000);
   const server = createServer();
-  server.listen(port, '0.0.0.0', () => console.log(`Rush backend listening on 0.0.0.0:${port}`));
+  server.listen(port, '0.0.0.0', () => console.log(`Rush login backend listening on 0.0.0.0:${port}`));
 }
 
 module.exports = { createServer };
