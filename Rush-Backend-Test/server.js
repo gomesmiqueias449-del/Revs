@@ -67,6 +67,7 @@ function stableTestUserId(deviceId) {
 function createServer(options = {}) {
   const photonAppId = options.photonAppId ?? process.env.PHOTON_APP_ID ?? DEFAULT_PHOTON_APP_ID;
   const testUsername = options.testUsername ?? process.env.TEST_USERNAME ?? 'TestPlayer';
+  const usernamesById = new Map();
   const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
@@ -90,7 +91,7 @@ function createServer(options = {}) {
       sendJson(res, 200, {
         service: 'Rush Photon Test Login Backend',
         mode: 'test-only',
-        endpoints: ['/health', '/config', 'POST /user/login'],
+        endpoints: ['/health', '/config', 'POST /user/login', 'POST /user/rename'],
       });
       return;
     }
@@ -99,7 +100,7 @@ function createServer(options = {}) {
       return;
     }
     if (req.method === 'GET' && pathname === '/config') {
-      sendJson(res, 200, { photonAppId, note: 'Test login backend only; this does not validate real accounts.' });
+      sendJson(res, 200, { photonAppId, note: 'Test backend only; account identity is not authenticated.' });
       return;
     }
     if (req.method === 'POST' && pathname === '/user/login') {
@@ -112,19 +113,46 @@ function createServer(options = {}) {
           sendJson(res, 400, { error: 'deviceId, country, and hash are required' });
           return;
         }
+        const id = stableTestUserId(deviceId);
         sendJson(res, 200, {
           banned: false,
-          username: testUsername,
+          username: usernamesById.get(String(id)) || testUsername,
           country: country.slice(0, 2),
           trophys: 0,
           crowns: 0,
-          id: stableTestUserId(deviceId),
+          id,
           experience: 0,
           gems: 0,
           coins: 0,
         });
       } catch (error) {
         sendJson(res, error.statusCode || 400, { error: error.message || 'Invalid request' });
+      }
+      return;
+    }
+    if (req.method === 'POST' && pathname === '/user/rename') {
+      try {
+        const body = await readJson(req);
+        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+        const hash = typeof body.hash === 'string' ? body.hash.trim() : '';
+        const id = Number(body.id);
+        const username = typeof body.username === 'string' ? body.username.trim() : '';
+        if (!deviceId || !hash || !Number.isSafeInteger(id) || id <= 0 || !username) {
+          sendJson(res, 400, { error: 'id, deviceId, hash, and username are required' });
+          return;
+        }
+        if (id !== stableTestUserId(deviceId)) {
+          sendJson(res, 403, { error: 'Player ID does not match device ID' });
+          return;
+        }
+        if (username.length > 32 || /[\u0000-\u001f\u007f]/u.test(username)) {
+          sendJson(res, 400, { error: 'Username must be at most 32 characters and contain no control characters' });
+          return;
+        }
+        usernamesById.set(String(id), username);
+        sendJson(res, 200, { ok: true, free: true, id, username });
+      } catch (error) {
+        sendJson(res, error.statusCode || 400, { error: error.message || 'Rename failed' });
       }
       return;
     }

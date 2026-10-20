@@ -21,6 +21,12 @@ test.after(async () => {
   if (server?.listening) await new Promise(resolve => server.close(resolve));
 });
 
+const postJson = (path, body) => fetch(`${baseUrl}${path}`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+});
+
 test('GET /health returns an OK status', async () => {
   const response = await fetch(`${baseUrl}/health`);
   assert.equal(response.status, 200);
@@ -35,11 +41,7 @@ test('GET /config publishes the Photon App ID', async () => {
 });
 
 test('POST /user/login returns the fields expected by the mod', async () => {
-  const response = await fetch(`${baseUrl}/user/login/`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ deviceId: 'device-test-1', country: 'br', hash: 'test-only' }),
-  });
+  const response = await postJson('/user/login/', { deviceId: 'device-test-1', country: 'br', hash: 'test-only' });
   const data = await response.json();
   assert.equal(response.status, 200);
   assert.deepEqual(Object.keys(data).sort(), [
@@ -54,22 +56,52 @@ test('POST /user/login returns the fields expected by the mod', async () => {
 });
 
 test('POST /user/login rejects missing fields', async () => {
-  const response = await fetch(`${baseUrl}/user/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ deviceId: 'device-test-1' }),
-  });
+  const response = await postJson('/user/login', { deviceId: 'device-test-1' });
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /required/);
 });
 
-test('routes outside login and operational endpoints are unavailable', async () => {
-  for (const [path, method] of [
-    ['/user/rename', 'POST'],
-    ['/classic-tournament/create', 'POST'],
-    ['/classic-tournament/list', 'GET'],
-  ]) {
-    const response = await fetch(`${baseUrl}${path}`, { method });
-    assert.equal(response.status, 404);
+test('POST /user/rename changes the name for free and returns it on the next login', async () => {
+  const credentials = { deviceId: 'device-rename-test-1', country: 'BR', hash: 'test-only' };
+  const login = await postJson('/user/login', credentials);
+  const account = await login.json();
+  assert.equal(login.status, 200);
+
+  const renamed = await postJson('/user/rename', {
+    id: account.id,
+    deviceId: credentials.deviceId,
+    hash: credentials.hash,
+    username: 'RushPlayer',
+  });
+  assert.equal(renamed.status, 200);
+  assert.deepEqual(await renamed.json(), { ok: true, free: true, id: account.id, username: 'RushPlayer' });
+
+  const relogin = await postJson('/user/login', credentials);
+  assert.equal(relogin.status, 200);
+  assert.equal((await relogin.json()).username, 'RushPlayer');
+});
+
+test('POST /user/rename rejects an ID that does not match the device', async () => {
+  const response = await postJson('/user/rename', {
+    id: 123,
+    deviceId: 'device-rename-test-2',
+    hash: 'test-only',
+    username: 'MustFail',
+  });
+  assert.equal(response.status, 403);
+  assert.match((await response.json()).error, /does not match/);
+});
+
+test('POST /user/rename rejects empty, long, or control-character names', async () => {
+  const deviceId = 'device-rename-test-3';
+  const id = (await (await postJson('/user/login', { deviceId, country: 'BR', hash: 'test-only' })).json()).id;
+  for (const username of ['', 'x'.repeat(33), 'bad\nname']) {
+    const response = await postJson('/user/rename', { id, deviceId, hash: 'test-only', username });
+    assert.equal(response.status, 400);
   }
+});
+
+test('tournament endpoints remain unavailable', async () => {
+  const response = await fetch(`${baseUrl}/classic-tournament/list`);
+  assert.equal(response.status, 404);
 });

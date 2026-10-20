@@ -1,12 +1,14 @@
 # Rush Photon Test Login Backend
 
-Backend de teste do Rush-Revs com `GET /health`, `GET /config` e `POST /user/login`. Não oferece cadastro, recuperação de senha, renomeação, torneios ou outras APIs.
+Backend de teste do Rush-Revs com `GET /health`, `GET /config`, `POST /user/login` e `POST /user/rename`. Não oferece cadastro, recuperação de senha, torneios ou outras APIs.
 
-## Login de teste
+## Login e troca de nome gratuita
 
-O endpoint `POST /user/login` exige `deviceId`, `country` e `hash` não vazios. Mantém o formato de resposta esperado pelo mod e deriva um ID estável a partir do dispositivo. O nome padrão é `TestPlayer` e pode ser alterado por `TEST_USERNAME`.
+`POST /user/login` exige `deviceId`, `country` e `hash` não vazios. Mantém o formato de resposta esperado pelo mod e deriva um ID estável do dispositivo. O nome padrão é `TestPlayer` e pode ser alterado por `TEST_USERNAME`.
 
-**Isto não é autenticação real de usuários existentes:** o servidor não consulta um banco de contas, não valida a identidade e aceita qualquer `hash` não vazio. Use exclusivamente no ambiente de teste/mod; não use com contas reais ou dados sensíveis.
+`POST /user/rename` recebe `id`, `deviceId`, `hash` e `username`. A troca custa zero, confirma `{ ok: true, free: true, id, username }` e aceita nomes de 1 a 32 caracteres sem caracteres de controle. O ID precisa corresponder ao `deviceId`; depois da troca, o login do mesmo dispositivo retorna o novo nome enquanto o processo do servidor permanecer ativo.
+
+**Persistência e segurança:** este é um backend de teste, sem banco de contas. Os nomes são mantidos apenas na memória do processo e podem voltar a `TestPlayer` após reinicialização ou novo processo. O servidor não autentica a identidade: aceita qualquer `hash` não vazio e o ID deriva de `deviceId`. Não use com contas reais, dados sensíveis ou como backend de produção.
 
 ## Photon
 
@@ -25,4 +27,4 @@ A API escuta em `0.0.0.0:10000` por padrão. Variáveis suportadas: `PHOTON_APP_
 
 ## Deploy
 
-Configure o serviço Render para usar a branch `backend-login-only`, com diretório raiz `Rush-Backend-Test`, comando de build `npm install` e comando de inicialização `npm start`.
+O serviço Render usa a branch `backend-login-only`, diretório `Rush-Backend-Test`, comando de build `cd Rush-Backend-Test && npm install` e comando de inicialização `cd Rush-Backend-Test && npm start`.
